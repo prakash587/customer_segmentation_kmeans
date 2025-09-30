@@ -2,7 +2,11 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+<<<<<<< HEAD
       <module fileurl="file://$PROJECT_DIR$/.idea/customer_segmentation.iml" filepath="$PROJECT_DIR$/.idea/customer_segmentation.iml" />
+=======
+      <module fileurl="file://$PROJECT_DIR$/.idea/customer_segmentation_using _knn.iml" filepath="$PROJECT_DIR$/.idea/customer_segmentation_using _knn.iml" />
+>>>>>>> 61584d9 (intialializing app)
     </modules>
   </component>
 </project>
