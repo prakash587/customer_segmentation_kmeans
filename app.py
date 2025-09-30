@@ -10,15 +10,15 @@ import seaborn as sns
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 import pickle
-import io
 
 sns.set()
 
 st.set_page_config(page_title='Customer Clustering Explorer', layout='wide')
 st.title('Customer Clustering Explorer')
 st.markdown("""
-This app performs exploratory data analysis (EDA) on a mall customers dataset, compares clustering algorithms
+This app performs exploratory data analysis (EDA) on a customers dataset, compares clustering algorithms
 (KMeans, Hierarchical/Agglomerative, DBSCAN), evaluates them with cluster metrics, visualizes results (PCA),
 and exports a trained KMeans model as `kmeans_model.pkl` for use in production / Streamlit apps.
 """)
@@ -34,7 +34,6 @@ if uploaded_file is None and not use_sample:
 # Provide a small sample dataset if requested
 @st.cache_data
 def load_sample():
-    # small sample created inline resembling the Mall_Customers.csv structure
     data = {
         'CustomerID': list(range(1,201)),
         'Gender': np.random.choice(['Male','Female'], size=200),
@@ -43,7 +42,6 @@ def load_sample():
         'Spending Score (1-100)': np.random.randint(1,101,size=200)
     }
     return pd.DataFrame(data)
-
 
 def load_data():
     if uploaded_file is not None:
@@ -127,11 +125,13 @@ if customer_data.shape[0] <= 1000:
 
 st.write('---')
 
-# --- Prepare features for clustering (Annual Income & Spending Score) ---
+# --- Prepare features for clustering ---
 st.subheader('Clustering: features selection')
-feature_cols = st.multiselect('Select two numerical features for clustering (default: Annual Income, Spending Score)',
-                              options=[c for c in customer_data.columns if np.issubdtype(customer_data[c].dtype, np.number)],
-                              default=['Annual Income (k$)','Spending Score (1-100)'])
+feature_cols = st.multiselect(
+    'Select two numerical features for clustering (default: Annual Income, Spending Score)',
+    options=[c for c in customer_data.columns if np.issubdtype(customer_data[c].dtype, np.number)],
+    default=['Annual Income (k$)','Spending Score (1-100)']
+)
 
 if len(feature_cols) != 2:
     st.warning('Please select exactly two numeric features to continue.')
@@ -139,13 +139,13 @@ if len(feature_cols) != 2:
 
 X = customer_data[feature_cols].values
 
-# Option: scale? user can choose
-from sklearn.preprocessing import StandardScaler
+# Option: scale features
 scale = st.checkbox('Scale features (StandardScaler)', value=False)
 if scale:
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 else:
+    scaler = None
     X_scaled = X
 
 # --- Elbow method for KMeans ---
@@ -165,7 +165,8 @@ ax_elb.set_title('Elbow plot')
 st.pyplot(fig_elb)
 
 # Let user choose n_clusters
-n_clusters = st.number_input('Choose number of clusters for KMeans and Agglomerative', min_value=2, max_value=12, value=5, step=1)
+n_clusters = st.number_input('Choose number of clusters for KMeans and Agglomerative',
+                             min_value=2, max_value=12, value=5, step=1)
 
 # --- Train and compare clustering algorithms ---
 st.subheader('Train & Compare Clustering Algorithms')
@@ -179,13 +180,13 @@ if train_button:
     hc = AgglomerativeClustering(n_clusters=n_clusters)
     y_hc = hc.fit_predict(X_scaled)
 
-    # DBSCAN: eps and min_samples tunable
+    # DBSCAN
     eps = st.sidebar.slider('DBSCAN eps (distance)', 0.5, 30.0, 5.0)
     min_s = st.sidebar.slider('DBSCAN min_samples', 2, 20, 5)
     dbs = DBSCAN(eps=eps, min_samples=min_s)
     y_db = dbs.fit_predict(X_scaled)
 
-    # Evaluation metrics (for KMeans and Agglomerative where labels aren't -1 noise)
+    # Evaluation metrics
     st.write('### Clustering Metrics')
     try:
         km_sil = silhouette_score(X_scaled, y_km)
@@ -217,15 +218,17 @@ if train_button:
     })
     st.dataframe(metrics_df)
 
-    # Visualize clusters (original scale for axes)
+    # Visualizations
     vis_col1, vis_col2 = st.columns(2)
     with vis_col1:
         st.write('KMeans clusters')
         fig_k, axk = plt.subplots(figsize=(6,5))
         scatter = axk.scatter(X[:,0], X[:,1], c=y_km, cmap='tab10', s=50)
-        axk.scatter(kmeans.cluster_centers_[:,0] if not scale else scaler.inverse_transform(kmeans.cluster_centers_)[:,0],
-                    kmeans.cluster_centers_[:,1] if not scale else scaler.inverse_transform(kmeans.cluster_centers_)[:,1],
-                    s=200, marker='X', label='Centroids')
+        axk.scatter(
+            kmeans.cluster_centers_[:,0] if not scale else scaler.inverse_transform(kmeans.cluster_centers_)[:,0],
+            kmeans.cluster_centers_[:,1] if not scale else scaler.inverse_transform(kmeans.cluster_centers_)[:,1],
+            s=200, marker='X', label='Centroids'
+        )
         axk.set_xlabel(feature_cols[0])
         axk.set_ylabel(feature_cols[1])
         axk.set_title('KMeans (k={})'.format(n_clusters))
@@ -241,7 +244,6 @@ if train_button:
         axh.set_title('Agglomerative (k={})'.format(n_clusters))
         st.pyplot(fig_h)
 
-    # DBSCAN plot
     st.write('DBSCAN clusters (label -1 = noise)')
     fig_d, axd = plt.subplots(figsize=(6,5))
     axd.scatter(X[:,0], X[:,1], c=y_db, cmap='tab10', s=50)
@@ -249,7 +251,6 @@ if train_button:
     axd.set_ylabel(feature_cols[1])
     st.pyplot(fig_d)
 
-    # PCA for visualizing clusters in 2D (if more dims selected in future)
     st.write('### PCA projection of data and KMeans clusters')
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X_scaled)
@@ -258,15 +259,43 @@ if train_button:
     axp.set_title('PCA (2 components) colored by KMeans cluster')
     st.pyplot(fig_p)
 
-    # Save KMeans model to pickle
-    st.write('### Export trained KMeans model')
+    # --- Cluster Profiling ---
+    st.subheader("Cluster Profiling (KMeans)")
+    customer_data['Cluster'] = y_km
+    profile = customer_data.groupby('Cluster').agg({
+        feature_cols[0]: ['mean','min','max'],
+        feature_cols[1]: ['mean','min','max']
+    })
+
+    # Assign human-readable labels
+    def label_cluster(row):
+        mean_x = row[(feature_cols[0], 'mean')]
+        mean_y = row[(feature_cols[1], 'mean')]
+        if mean_x > np.percentile(customer_data[feature_cols[0]], 66) and mean_y > np.percentile(customer_data[feature_cols[1]], 66):
+            return "High Income, High Spending"
+        elif mean_x < np.percentile(customer_data[feature_cols[0]], 33) and mean_y < np.percentile(customer_data[feature_cols[1]], 33):
+            return "Low Income, Low Spending"
+        elif mean_x >= np.percentile(customer_data[feature_cols[0]], 33) and mean_x <= np.percentile(customer_data[feature_cols[0]], 66):
+            return "Mid Income, Mid Spending"
+        else:
+            return "Other Segment"
+
+    profile['Segment'] = profile.apply(label_cluster, axis=1)
+    st.dataframe(profile)
+
+    # Save model + scaler + features + profile
     save_path = 'kmeans_model.pkl'
     with open(save_path, 'wb') as f:
-        pickle.dump({'model': kmeans, 'scaler': scaler if scale else None, 'features': feature_cols}, f)
+        pickle.dump({'model': kmeans,
+                     'scaler': scaler,
+                     'features': feature_cols,
+                     'profile': profile}, f)
 
-    st.success(f'KMeans model saved to `{save_path}`')
+    st.success(f'KMeans model + profiling saved to `{save_path}`')
     with open(save_path, 'rb') as f:
-        btn = st.download_button(label='Download kmeans_model.pkl', data=f, file_name='kmeans_model.pkl', mime='application/octet-stream')
+        btn = st.download_button(label='Download kmeans_model.pkl',
+                                 data=f, file_name='kmeans_model.pkl',
+                                 mime='application/octet-stream')
 
 # --- Prediction / Inference UI ---
 st.write('---')
@@ -283,22 +312,26 @@ if submitted:
             model = saved['model']
             saved_scaler = saved['scaler']
             saved_features = saved['features']
+            saved_profile = saved['profile']
     except Exception:
         st.error('Trained kmeans_model.pkl not found. Run training above to create it.')
         model = None
         saved_scaler = None
+        saved_profile = None
 
     if model is not None:
         arr = np.array([[val1, val2]])
         if saved_scaler is not None:
             arr = saved_scaler.transform(arr)
-        pred = model.predict(arr)
-        st.write(f'Predicted cluster: **{int(pred[0])}**')
+        pred = model.predict(arr)[0]
+        st.write(f'Predicted cluster: **{int(pred)}**')
+
+        if saved_profile is not None and 'Segment' in saved_profile.columns:
+            seg_name = saved_profile.loc[pred, 'Segment']
+            st.write(f'→ Segment: **{seg_name}**')
 
 st.write('---')
 st.write('Notes:')
 st.write('- The app uses two features for clustering by default. You can change the features in the sidebar.')
 st.write('- If your dataset columns have different names, choose the appropriate columns via the multiselect.')
 st.write('- For production, adapt file paths and consider storing models in cloud storage (S3, GCS) or a model registry.')
-
-# End of file
